@@ -36,6 +36,14 @@ impl<T> LinkedList<T> {
     pub fn rest(&self) -> Self {
         Self(self.0.cdr())
     }
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+    #[inline]
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
 }
 
 /// thread safety list
@@ -67,6 +75,14 @@ impl<T> TSLinkedList<T> {
     #[inline]
     pub fn rest(&self) -> Self {
         Self(Arc::new(Mutex::new(self.0.lock().unwrap().cdr())))
+    }
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.0.lock().unwrap().is_empty()
+    }
+    #[inline]
+    pub fn len(&self) -> usize {
+        self.0.lock().unwrap().len()
     }
 }
 
