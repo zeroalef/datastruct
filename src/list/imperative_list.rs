@@ -1,4 +1,3 @@
-use std::borrow::BorrowMut;
 use std::marker::PhantomData;
 use std::ptr::NonNull;
 use std::sync::{Arc, Mutex};
@@ -27,6 +26,10 @@ impl<T> LinkedList<T> {
     }
     #[inline]
     pub fn pop(&mut self) -> Option<T> {
+        self.0.head()
+    }
+    #[inline]
+    pub fn touch(&mut self) -> Option<T> {
         self.0.car()
     }
     #[inline]
@@ -38,6 +41,12 @@ impl<T> LinkedList<T> {
 /// thread safety list
 pub struct TSLinkedList<T>(Arc<Mutex<LinkedListInner<T>>>);
 
+impl<T> Clone for TSLinkedList<T> {
+    fn clone(&self) -> Self {
+        Self(Arc::clone(&self.0))
+    }
+}
+
 impl<T> TSLinkedList<T> {
     #[inline]
     pub fn new() -> Self {
@@ -48,7 +57,11 @@ impl<T> TSLinkedList<T> {
         self.0.lock().unwrap().cons(data);
     }
     #[inline]
-    pub fn pop(&self) -> T {
+    pub fn pop(&self) -> Option<T> {
+        self.0.lock().unwrap().head()
+    }
+    #[inline]
+    pub fn touch(&self) -> Option<T> {
         self.0.lock().unwrap().car()
     }
     #[inline]
@@ -63,6 +76,15 @@ struct LinkedListInner<T> {
     _marker: PhantomData<T>,
 }
 
+impl<T> Drop for LinkedListInner<T> {
+    fn drop(&mut self) {
+        while self.head().is_some() {}
+    }
+}
+
+unsafe impl<T: Send> Send for LinkedListInner<T> {}
+unsafe impl<T: Sync> Sync for LinkedListInner<T> {}
+
 impl<T> LinkedListInner<T> {
     #[inline(always)]
     pub fn new() -> Self {
@@ -72,6 +94,11 @@ impl<T> LinkedListInner<T> {
             _marker: PhantomData,
         }
     }
+    #[inline(always)]
+    pub fn is_empty(&self) -> bool {self.len == 0}
+    #[inline(always)]
+    pub fn len(&self) -> usize {self.len}
+
     #[inline(always)]
     pub fn cons(&mut self, data: T) {
         unsafe {
@@ -83,7 +110,7 @@ impl<T> LinkedListInner<T> {
         }
     }
     #[inline(always)]
-    pub fn car(&mut self) -> Option<T> {
+    pub fn head(&mut self) -> Option<T> {
         unsafe {
             self.head.map(|node| {
                 let boxed = Box::from_raw(node.as_ptr());
@@ -93,6 +120,10 @@ impl<T> LinkedListInner<T> {
                 return_value
             })
         }
+    }
+    #[inline(always)]
+    pub fn car(&mut self) -> Option<T> {
+        unsafe { self.head.map(|node| Box::from_raw(node.as_ptr()).data) }
     }
     #[inline(always)]
     pub fn cdr(&self) -> Self {
@@ -108,16 +139,55 @@ impl<T> LinkedListInner<T> {
 }
 
 #[cfg(test)]
-mod test {
+mod test_linked_list {
+    use crate::list::imperative_list::LinkedList;
     use crate::list::imperative_list::LinkedListInner;
+    use crate::list::imperative_list::TSLinkedList;
+    use std::thread;
+    use std::time::Duration;
     #[test]
-    fn test_linked_list() {
+    fn test_linked_list_inner() {
         let mut l: LinkedListInner<i32> = LinkedListInner::new();
-        (0..1000000).into_iter().for_each(|value| {
+        (0..1000).into_iter().for_each(|value| {
             l.cons(value);
         });
-        (0..1000000).into_iter().rev().for_each(|value| {
-            assert_eq!(l.car(), Some(value));
+        (0..1000).into_iter().rev().for_each(|value| {
+            assert_eq!(l.head(), Some(value));
+        });
+    }
+    #[test]
+    fn test_linked_list() {
+        let mut l: LinkedList<i32> = LinkedList::new();
+        (0..1000).into_iter().for_each(|value| {
+            l.push(value);
+        });
+        (0..1000).into_iter().rev().for_each(|value| {
+            assert_eq!(l.pop(), Some(value));
+        });
+    }
+    #[test]
+    fn test_thread_safe_linked_list() {
+        let mut list: TSLinkedList<u64> = TSLinkedList::new();
+        let mut list_ref = list.clone();
+
+        thread::scope(move |s| {
+            let t1 = Duration::from_millis(11);
+            let t2 = Duration::from_millis(23);
+            s.spawn(move || {
+                (0..100).into_iter().for_each(|x| {
+                    list.push(x);
+                    thread::sleep(t1);
+                });
+            });
+            s.spawn(move || {
+                (0..100).into_iter().for_each(move |x| {
+                    thread::sleep(t2);
+                    match list_ref.pop() {
+                        Some(val) => println!("{}", val),
+                        None => println!("None"),
+                    }
+                });
+            });
         });
     }
 }
