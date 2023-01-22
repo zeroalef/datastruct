@@ -29,7 +29,7 @@ impl<T> LinkedListInner<T> {
         unsafe {
             let new_node = NonNull::new_unchecked(Box::into_raw(Box::new(OneLinkNode {
                 next: None,
-                data: data,
+                data,
             })));
             (*new_node.as_ptr()).next = self.head;
             self.head = Some(new_node);
